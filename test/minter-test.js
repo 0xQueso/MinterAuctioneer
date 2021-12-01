@@ -1,8 +1,6 @@
 const { expect } = require("chai");
 const { ethers, waffle, network} = require("hardhat");
-const {makeForkClient} = require("hardhat/internal/hardhat-network/provider/utils/makeForkClient");
 const MinterArtifact = require("../artifacts/contracts/Minter.sol/Minter.json");
-const {BigNumber} = require("ethers");
 
 const { provider, deployContract } = waffle;
 
@@ -42,13 +40,18 @@ describe("Minter", function () {
   });
 
   it("Admin should be able to buy back 100 token", async function () {
-    await minter.mint(admin.address, 100);
+    await minter.buyBack(admin.address, 100);
     expect(await minter.balanceOf(admin.address)).to.equal(1000000);
   });
 
   it("Other users should not be able to mint or burn token", async function () {
      await expect(minter.connect(addr2).mint(addr2.address, 100)).to.be.revertedWith("Caller is not an Admin");
      await expect(minter.connect(addr2).burn(addr2.address, 100)).to.be.revertedWith("Caller is not an Admin");
+  });
+
+  it("Register as a developer and be granted with Dev Role", async function () {
+     await minter.connect(addr7).registerAsDev();
+     expect(await minter.hasRole(minter.DEV_ROLE(), addr7.address)).to.true;
   });
 
   it("Test distribute funds to other users", async function () {
@@ -112,7 +115,6 @@ describe("Minter", function () {
           ).to.be.revertedWith("Bid is lower than highest bid.");
       })
 
-
       it("Auction by User1 Should have 2 bids from token nft id 0", async function (){
           const bids = await minter.nftBids(0);
           expect(bids).to.have.lengthOf(2);
@@ -164,6 +166,12 @@ describe("Minter", function () {
             await minter.connect(addr5).bid(3000,1);
         });
 
+        it("Auction by User2 Should not have any bids as the bids are hidden", async function (){
+            await expect(
+                minter.nftBids(1)
+            ).to.be.revertedWith("Bids are hidden for this auction");
+        })
+
         it("Current highestBid(User5): Claiming asset while the Auction is still on going should NOT proceed", async function (){
             await expect(
                 minter.connect(addr5).claimAsset(1)
@@ -185,7 +193,7 @@ describe("Minter", function () {
             expect(bal2, bal5).to.equal(5000, 3000);
         })
 
-        it("Mint another NFT and Get nfts owned by User5", async function (){
+        it("Mint another NFT User5 and Get nfts owned by User5", async function (){
             await minter.connect(addr5).mintNFT();
             const nfts = await minter.getOwnerNFTS(addr5.address);
             expect(nfts[0].toNumber(), nfts[1].toNumber()).to.equal(1,2);

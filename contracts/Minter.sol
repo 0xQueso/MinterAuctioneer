@@ -6,6 +6,8 @@ import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import "./interfaces/IMeaningless.sol";
 
+/// @author 0xQueso
+/// @title A simple NFT minter with an auction ERC-20 token
 contract Minter is ERC20, AccessControl {
     bytes32 public constant ADMIN_ROLE = keccak256("ADMINISTRATOR");
     bytes32 public constant DEV_ROLE = keccak256("DEV_ROLE");
@@ -45,8 +47,13 @@ contract Minter is ERC20, AccessControl {
         _setupRole(ADMIN_ROLE, msg.sender);
     }
 
+    /// Start an auction
+    /// @param biddingTime time before bidding ends
+    /// @param isBlinded auction category
+    /// @param nftId id of nft to be auctioned
+    /// @dev populates auctions mapping whether for reopening or new auction
     function startAuction (
-        uint256 _biddingTime,
+        uint256 biddingTime,
         bool isBlinded,
         uint256 nftId
     ) public {
@@ -54,16 +61,20 @@ contract Minter is ERC20, AccessControl {
 
         auctions[nftId] = Auction({
             auctioneer: msg.sender,
-            biddingEnd: block.timestamp + _biddingTime,
+            biddingEnd: block.timestamp + biddingTime,
             ended: false,
             highestBidder: address(0),
             highestBid: 0,
             isBlinded: isBlinded
         });
 
-        emit AuctionStarted(msg.sender, _biddingTime, isBlinded, nftId);
+        emit AuctionStarted(msg.sender, biddingTime, isBlinded, nftId);
     }
 
+    /// Bid to an auction
+    /// @param _bid bid amount
+    /// @param nftId Id of the active auction of NFT
+    /// @dev if auction is blinded, only store values when auction.highestBid < _bid
     function bid (
         uint256 _bid,
         uint256 nftId
@@ -102,29 +113,40 @@ contract Minter is ERC20, AccessControl {
         }));
     }
 
-    function claimAsset(uint256 tokenId) public {
-        Auction memory auction = auctions[tokenId];
+    /// Claim the NFT asset and Transfer funds to Auctioneer
+    /// @param nftId Id of NFT to be claimed
+    /// @dev claiming asset deletes nftId on pendingTransfers[] and bids[], allowing NFT for next auction
+    function claimAsset(uint256 nftId) public {
+        Auction memory auction = auctions[nftId];
 
         if (block.timestamp >= auction.biddingEnd) {
             auction.ended = true;
         }
 
         require(auction.ended, 'Auction is still active.');
-        require(pendingTransfers[tokenId].winner == msg.sender, 'You are not the winner.');
+        require(pendingTransfers[nftId].winner == msg.sender, 'You are not the winner.');
 
         transfer(auction.auctioneer, auction.highestBid);
-        IMeaningless(meaninglessAddress).safeTransferFrom(auction.auctioneer, auction.highestBidder, tokenId);
-        delete pendingTransfers[tokenId];
-        delete bids[tokenId];
-        emit Claimed(auction.highestBidder, auction.highestBid, tokenId);
+        IMeaningless(meaninglessAddress).safeTransferFrom(auction.auctioneer, auction.highestBidder, nftId);
+        delete pendingTransfers[nftId];
+        delete bids[nftId];
+        emit Claimed(auction.highestBidder, auction.highestBid, nftId);
     }
 
     function mint(address to, uint256 amount) public onlyAdmin {
         _mint(to, amount);
     }
 
+    function buyBack(address to, uint256 amount) public onlyAdmin {
+        _mint(to, amount);
+    }
+
     function burn(address from, uint256 amount) public onlyAdmin {
         _burn(from, amount);
+    }
+
+    function registerAsDev() public {
+        _setupRole(DEV_ROLE, msg.sender);
     }
 
     function mintNFT() public {
@@ -135,8 +157,12 @@ contract Minter is ERC20, AccessControl {
         balance = IMeaningless(meaninglessAddress).balanceOf(owner);
     }
 
-    function nftBids(uint256 tokenId) public view returns (Bid[] memory _bids) {
-        _bids = bids[tokenId];
+    function nftBids(uint256 nftId) public view returns (Bid[] memory _bids) {
+        Auction memory auction = auctions[nftId];
+        if (auction.isBlinded) {
+            revert('Bids are hidden for this auction');
+        }
+        _bids = bids[nftId];
     }
 
     function getOwnerNFTS(address owner) public view returns (uint256[] memory ids) {
